@@ -40,15 +40,7 @@ func main() {
 		fmt.Println(usageString())
 	}
 
-	if len(os.Args) == 1 {
-		files, e := ioutil.ReadDir("./")
-		extract.Check(e)
-		for _, f := range files {
-			fileList = append(fileList, f.Name())
-		}
-	} else {
-		flag.Parse()
-	}
+	flag.Parse()
 
 	/*
 		Check that the destination directory exists
@@ -58,6 +50,19 @@ func main() {
 	if _, e := os.Stat(destDir); e != nil {
 		if e := os.MkdirAll(destDir, 0755); e != nil {
 			panic(e)
+		}
+	}
+
+	/*
+		Check whether there are entries in fileList
+		if there aren't, then populate with files
+		from the current directory.
+	*/
+	if len(fileList) == 0 {
+		files, e := ioutil.ReadDir("./")
+		extract.Check(e)
+		for _, f := range files {
+			fileList = append(fileList, f.Name())
 		}
 	}
 

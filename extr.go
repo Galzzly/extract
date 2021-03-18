@@ -95,6 +95,13 @@ func Tar(src io.Reader, dst string) error {
 			}
 		// If it's a file...
 		case tar.TypeReg:
+			// Need to make sure that the parent directory is there.
+			parentDir, _ := filepath.Split(target)
+			if _, e := os.Stat(parentDir); e != nil {
+				if e := os.MkdirAll(parentDir, 0755); e != nil {
+					return e
+				}
+			}
 			ftw, e := os.OpenFile(target, os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode))
 			Check(e)
 			if _, e := io.Copy(ftw, tr); e != nil {
