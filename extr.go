@@ -118,7 +118,7 @@ func Zip(src, dst string) error {
 	Check(e)
 	defer zp.Close()
 
-	// Cycle through the contents
+	// Cycle through the contents, with enough permissions to write the files
 	for _, f := range zp.File {
 		rc, e := f.Open()
 		Check(e)
@@ -135,20 +135,27 @@ func Zip(src, dst string) error {
 		}
 
 		if f.FileInfo().IsDir() {
-			os.MkdirAll(target, f.Mode())
+			os.MkdirAll(target, os.FileMode(0777))
 		} else {
-			os.MkdirAll(filepath.Dir(target), f.Mode())
-			f, e := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+			os.MkdirAll(filepath.Dir(target), os.FileMode(0777))
+			ftw, e := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, os.FileMode(0777))
 			Check(e)
 			defer func() {
-				if err := f.Close(); err != nil {
+				if err := ftw.Close(); err != nil {
 					panic(err)
 				}
 			}()
 
-			_, e = io.Copy(f, rc)
+			_, e = io.Copy(ftw, rc)
 			Check(e)
 		}
+	}
+
+	// Cycle through again to set the permissions correctly
+	for _, f := range zp.File {
+		target := filepath.Join(dst, f.Name)
+		e := os.Chmod(target, f.Mode())
+		Check(e)
 	}
 	return nil
 }

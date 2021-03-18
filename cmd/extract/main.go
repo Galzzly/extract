@@ -72,7 +72,7 @@ func main() {
 		format, _ := filetype.Match(buf)
 
 		// If we do, send it on for processing
-		if format != filetype.Unknown {
+		if filetype.IsArchive(buf) {
 			extr(v, format.Extension, format.MIME.Value)
 		}
 
@@ -94,6 +94,7 @@ func extr(source, ext, frmt string) {
 		extract.Check(e)
 		defer f.Close()
 		err = extract.Gzip(f, destDir)
+		printTime(err, strtExtr)
 	// Tar files
 	case "application/x-tar":
 		//fmt.Println("tar")
@@ -101,10 +102,12 @@ func extr(source, ext, frmt string) {
 		extract.Check(e)
 		defer f.Close()
 		err = extract.Tar(f, destDir)
+		printTime(err, strtExtr)
 	// Zip files
 	case "application/zip":
 		//fmt.Println("zip")
 		err = extract.Zip(source, destDir)
+		printTime(err, strtExtr)
 	// 7-Zip files
 	//case "application/x-7z-compressed":
 	//fmt.Println("7za")
@@ -114,6 +117,7 @@ func extr(source, ext, frmt string) {
 		extract.Check(e)
 		defer f.Close()
 		err = extract.Rar(f, destDir)
+		printTime(err, strtExtr)
 	// Bzip files
 	case "application/x-bzip2":
 		//fmt.Println("bzip")
@@ -121,15 +125,25 @@ func extr(source, ext, frmt string) {
 		extract.Check(e)
 		defer f.Close()
 		err = extract.Bzip(f, extract.GetFileName(source), destDir)
+		printTime(err, strtExtr)
 	// Anything else, we do not process right now
 	default:
 		fmt.Println("Unable to process right now")
 	}
+	/*
+		if err != nil {
+			fmt.Println("Failed in", time.Since(strtExtr))
+		} else {
+			fmt.Println("Successful in", time.Since(strtExtr))
+		}
+	*/
+}
 
-	if err != nil {
-		fmt.Println("Failed in", time.Since(strtExtr))
+func printTime(e error, t time.Time) {
+	if e != nil {
+		fmt.Println("Failed in", time.Since(t))
 	} else {
-		fmt.Println("Successful in", time.Since(strtExtr))
+		fmt.Println("Successful in", time.Since(t))
 	}
 }
 
