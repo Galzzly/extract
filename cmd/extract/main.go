@@ -108,9 +108,6 @@ func extr(source, ext, frmt string) {
 		//fmt.Println("zip")
 		err = extract.Zip(source, destDir)
 		printTime(err, strtExtr)
-	// 7-Zip files
-	//case "application/x-7z-compressed":
-	//fmt.Println("7za")
 	// Rar files, without password
 	case "application/x-rar", "application/vnd.rar":
 		f, e := os.Open(source)
