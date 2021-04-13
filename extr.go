@@ -72,7 +72,7 @@ func Tar(src io.Reader, dst string) error {
 
 	for {
 		header, e := tr.Next()
-
+		fmt.Println(header, e)
 		if e == io.EOF {
 			break // Reached the end of the archive
 		}
@@ -108,6 +108,10 @@ func Tar(src io.Reader, dst string) error {
 				return e
 			}
 			ftw.Close()
+
+			// Set the modification time & access time
+			e = os.Chtimes(target, header.AccessTime, header.ModTime)
+			Check(e)
 		}
 	}
 	return nil
