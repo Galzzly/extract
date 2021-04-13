@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/dsnet/compress/bzip2"
 	"github.com/nwaples/rardecode"
@@ -68,11 +69,16 @@ func Gzip(src io.Reader, dst string) error {
 
 func Tar(src io.Reader, dst string) error {
 	tr := tar.NewReader(src)
-	//defer tr.Close()
+
+	/*
+		Need to track the directories with their modified times to correct
+		after extraction. Otherwise, modified will update with each file
+		extracted within.
+	*/
+	dirTimes := make(map[string]map[string]time.Time)
 
 	for {
 		header, e := tr.Next()
-		fmt.Println(header, e)
 		if e == io.EOF {
 			break // Reached the end of the archive
 		}
@@ -92,6 +98,10 @@ func Tar(src io.Reader, dst string) error {
 				if e := os.MkdirAll(target, 0755); e != nil {
 					return e
 				}
+				dirTimes[target] = map[string]time.Time{
+					"mTime": header.ModTime,
+					"aTime": header.AccessTime,
+				}
 			}
 		// If it's a file...
 		case tar.TypeReg:
@@ -108,12 +118,21 @@ func Tar(src io.Reader, dst string) error {
 				return e
 			}
 			ftw.Close()
-
 			// Set the modification time & access time
 			e = os.Chtimes(target, header.AccessTime, header.ModTime)
 			Check(e)
 		}
 	}
+
+	/*
+		Now that the loop is finished, and the individual files will have the times correct
+		Set the directories using the map made
+	*/
+	for dir := range dirTimes {
+		e := os.Chtimes(dir, dirTimes[dir]["aTime"], dirTimes[dir]["mTime"])
+		Check(e)
+	}
+
 	return nil
 }
 
