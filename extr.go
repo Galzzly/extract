@@ -172,14 +172,16 @@ func Zip(src, dst string) error {
 			_, e = io.Copy(ftw, rc)
 			Check(e)
 		}
-	}
 
-	// Cycle through again to set the permissions correctly
-	for _, f := range zp.File {
-		target := filepath.Join(dst, f.Name)
-		e := os.Chmod(target, f.Mode())
+		// Correct the permissions
+		e = os.Chmod(target, f.Mode())
+		Check(e)
+
+		// Set the modification time & access time
+		e = os.Chtimes(target, f.Modified, f.Modified)
 		Check(e)
 	}
+
 	return nil
 }
 
