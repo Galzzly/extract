@@ -15,6 +15,9 @@ builds:
       - windows
       - darwin
 archives:
+  - format: gz
+  - files:
+    - none*
   - name_template: "extract_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 checksum:
   name_template: 'checksums.txt'
