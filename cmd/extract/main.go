@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/Galzzly/extract"
@@ -35,6 +36,8 @@ func init() {
 
 func main() {
 	start := time.Now()
+	var wg sync.WaitGroup
+
 	if len(os.Args) >= 2 &&
 		(os.Args[1] == "-h" || os.Args[1] == "--help" || os.Args[1] == "help") {
 		fmt.Println(usageString())
@@ -66,26 +69,39 @@ func main() {
 		}
 	}
 
+	sem := make(chan int, 4) // Up to 4 jobs at once
+	wg.Add(len(fileList))
+
 	for _, v := range fileList {
-		// Check the file, and make sure we know what it is.
-		buf, _ := ioutil.ReadFile(v)
-		format, _ := filetype.Match(buf)
-
-		// If we do, send it on for processing
-		if filetype.IsArchive(buf) {
-			extr(v, format.Extension, format.MIME.Value)
-		}
-
+		go worker(v, &wg, sem)
 	}
+	wg.Wait()
+	close(sem)
 
 	fmt.Println("Total Time:", time.Since(start))
 	fmt.Println("Bundles have been extracted to:", destDir)
 }
 
-func extr(source, ext, frmt string) {
+func worker(source string, wg *sync.WaitGroup, sem chan int) {
+	defer wg.Done()
+	sem <- 1
+	buf, _ := ioutil.ReadFile(source)
+	format, _ := filetype.Match(buf)
+
+	if filetype.IsArchive(buf) {
+		fmt.Println("Looking at archive", source)
+		strtExtr := time.Now()
+		e := extr(source, format.Extension, format.MIME.Value)
+		printTime(source, e, strtExtr)
+	}
+
+	<-sem
+}
+
+func extr(source, ext, frmt string) error {
 	var err error
-	fmt.Printf("Looking at archive %s ... ", source)
-	strtExtr := time.Now()
+	//fmt.Printf("Looking at archive %s ... ", source)
+	//strtExtr := time.Now()
 	switch frmt {
 	// Gzip files
 	case "application/gzip":
@@ -94,7 +110,7 @@ func extr(source, ext, frmt string) {
 		extract.Check(e)
 		defer f.Close()
 		err = extract.Gzip(f, destDir)
-		printTime(err, strtExtr)
+		//printTime(err, strtExtr)
 	// Tar files
 	case "application/x-tar":
 		//fmt.Println("tar")
@@ -102,19 +118,19 @@ func extr(source, ext, frmt string) {
 		extract.Check(e)
 		defer f.Close()
 		err = extract.Tar(f, destDir)
-		printTime(err, strtExtr)
+		//printTime(err, strtExtr)
 	// Zip files
 	case "application/zip":
 		//fmt.Println("zip")
 		err = extract.Zip(source, destDir)
-		printTime(err, strtExtr)
+		//printTime(err, strtExtr)
 	// Rar files, without password
 	case "application/x-rar", "application/vnd.rar":
 		f, e := os.Open(source)
 		extract.Check(e)
 		defer f.Close()
 		err = extract.Rar(f, destDir)
-		printTime(err, strtExtr)
+		//printTime(err, strtExtr)
 	// Bzip files
 	case "application/x-bzip2":
 		//fmt.Println("bzip")
@@ -122,10 +138,11 @@ func extr(source, ext, frmt string) {
 		extract.Check(e)
 		defer f.Close()
 		err = extract.Bzip(f, extract.GetFileName(source), destDir)
-		printTime(err, strtExtr)
+		//printTime(err, strtExtr)
 	// Anything else, we do not process right now
 	default:
-		fmt.Println("Unable to process right now")
+		// fmt.Println("Unable to process right now")
+		err = fmt.Errorf("Unable to process right now")
 	}
 	/*
 		if err != nil {
@@ -134,13 +151,15 @@ func extr(source, ext, frmt string) {
 			fmt.Println("Successful in", time.Since(strtExtr))
 		}
 	*/
+
+	return err
 }
 
-func printTime(e error, t time.Time) {
+func printTime(source string, e error, t time.Time) {
 	if e != nil {
-		fmt.Println("Failed in", time.Since(t))
+		fmt.Println(source, "extract failed in", time.Since(t))
 	} else {
-		fmt.Println("Successful in", time.Since(t))
+		fmt.Println(source, "extract successful in", time.Since(t))
 	}
 }
 
