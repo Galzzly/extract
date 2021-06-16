@@ -100,57 +100,39 @@ func worker(source string, wg *sync.WaitGroup, sem chan int) {
 
 func extr(source, ext, frmt string) error {
 	var err error
-	//fmt.Printf("Looking at archive %s ... ", source)
-	//strtExtr := time.Now()
 	switch frmt {
 	// Gzip files
 	case "application/gzip":
-		//fmt.Println("gzip")
 		f, e := os.Open(source)
 		extract.Check(e)
 		defer f.Close()
 		err = extract.Gzip(f, destDir)
-		//printTime(err, strtExtr)
+
 	// Tar files
 	case "application/x-tar":
-		//fmt.Println("tar")
 		f, e := os.Open(source)
 		extract.Check(e)
 		defer f.Close()
 		err = extract.Tar(f, destDir)
-		//printTime(err, strtExtr)
 	// Zip files
 	case "application/zip":
-		//fmt.Println("zip")
 		err = extract.Zip(source, destDir)
-		//printTime(err, strtExtr)
 	// Rar files, without password
 	case "application/x-rar", "application/vnd.rar":
 		f, e := os.Open(source)
 		extract.Check(e)
 		defer f.Close()
 		err = extract.Rar(f, destDir)
-		//printTime(err, strtExtr)
 	// Bzip files
 	case "application/x-bzip2":
-		//fmt.Println("bzip")
 		f, e := os.Open(source)
 		extract.Check(e)
 		defer f.Close()
 		err = extract.Bzip(f, extract.GetFileName(source), destDir)
-		//printTime(err, strtExtr)
 	// Anything else, we do not process right now
 	default:
-		// fmt.Println("Unable to process right now")
 		err = fmt.Errorf("Unable to process right now")
 	}
-	/*
-		if err != nil {
-			fmt.Println("Failed in", time.Since(strtExtr))
-		} else {
-			fmt.Println("Successful in", time.Since(strtExtr))
-		}
-	*/
 
 	return err
 }
