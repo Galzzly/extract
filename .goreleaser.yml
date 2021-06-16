@@ -16,9 +16,7 @@ builds:
       - darwin
 archives:
   - format: binary
-  - files:
-    - none*
-  - name_template: "extract_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    name_template: "extract_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 checksum:
   disable: true
 snapshot:
