@@ -6,11 +6,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/Galzzly/extract"
-	"github.com/h2non/filetype"
 )
 
 type arrayFlags []string
@@ -27,17 +25,23 @@ func (i *arrayFlags) Set(value string) error {
 var (
 	fileList arrayFlags
 	destDir  string
+	numC     int
 )
 
 func init() {
 	flag.Var(&fileList, "f", "")
 	flag.StringVar(&destDir, "d", "./", "")
+	flag.IntVar(&numC, "c", 4, "")
 }
 
 func main() {
-	start := time.Now()
-	var wg sync.WaitGroup
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "%s\n", err)
+		os.Exit(1)
+	}
+}
 
+func run() (err error) {
 	if len(os.Args) >= 2 &&
 		(os.Args[1] == "-h" || os.Args[1] == "--help" || os.Args[1] == "help") {
 		fmt.Println(usageString())
@@ -52,9 +56,12 @@ func main() {
 	*/
 	if _, e := os.Stat(destDir); e != nil {
 		if e := os.MkdirAll(destDir, 0755); e != nil {
-			panic(e)
+			return e
 		}
 	}
+
+	start := time.Now()
+	//var wg sync.WaitGroup
 
 	/*
 		Check whether there are entries in fileList
@@ -62,87 +69,31 @@ func main() {
 		from the current directory.
 	*/
 	if len(fileList) == 0 {
-		files, e := ioutil.ReadDir("./")
-		extract.Check(e)
-		for _, f := range files {
-			fileList = append(fileList, f.Name())
+		fileList, err = getFileList()
+		if err != nil {
+			return
 		}
 	}
 
-	sem := make(chan int, 4) // Up to 4 jobs at once
-	wg.Add(len(fileList))
-
-	for _, v := range fileList {
-		go worker(v, &wg, sem)
+	err = extract.Extract(fileList, destDir, numC)
+	if err != nil {
+		return err
 	}
-	wg.Wait()
-	close(sem)
 
 	fmt.Println("Total Time:", time.Since(start))
 	fmt.Println("Bundles have been extracted to:", destDir)
+	return nil
 }
 
-func worker(source string, wg *sync.WaitGroup, sem chan int) {
-	defer wg.Done()
-	sem <- 1
-	buf, _ := ioutil.ReadFile(source)
-	format, _ := filetype.Match(buf)
-
-	if filetype.IsArchive(buf) {
-		fmt.Println("Looking at archive", source)
-		strtExtr := time.Now()
-		e := extr(source, format.Extension, format.MIME.Value)
-		printTime(source, e, strtExtr)
+func getFileList() (fileList []string, err error) {
+	files, err := ioutil.ReadDir("./")
+	if err != nil {
+		return
 	}
-
-	<-sem
-}
-
-func extr(source, ext, frmt string) error {
-	var err error
-	switch frmt {
-	// Gzip files
-	case "application/gzip":
-		f, e := os.Open(source)
-		extract.Check(e)
-		defer f.Close()
-		err = extract.Gzip(f, destDir)
-
-	// Tar files
-	case "application/x-tar":
-		f, e := os.Open(source)
-		extract.Check(e)
-		defer f.Close()
-		err = extract.Tar(f, destDir)
-	// Zip files
-	case "application/zip":
-		err = extract.Zip(source, destDir)
-	// Rar files, without password
-	case "application/x-rar", "application/vnd.rar":
-		f, e := os.Open(source)
-		extract.Check(e)
-		defer f.Close()
-		err = extract.Rar(f, destDir)
-	// Bzip files
-	case "application/x-bzip2":
-		f, e := os.Open(source)
-		extract.Check(e)
-		defer f.Close()
-		err = extract.Bzip(f, extract.GetFileName(source), destDir)
-	// Anything else, we do not process right now
-	default:
-		err = fmt.Errorf("Unable to process right now")
+	for _, f := range files {
+		fileList = append(fileList, f.Name())
 	}
-
-	return err
-}
-
-func printTime(source string, e error, t time.Time) {
-	if e != nil {
-		fmt.Println(source, "extract failed in", time.Since(t))
-	} else {
-		fmt.Println(source, "extract successful in", time.Since(t))
-	}
+	return
 }
 
 func usageString() string {
@@ -163,6 +114,10 @@ const usage = `Usage: extract {help} {-f [filename]}
 	-d [directory]
 		OPTIONAL. A target directory to extract the 
 		bundles into. 
+
+	-c [integer]
+		OPTIONAL. Number of bundles to extract in 
+		parallel. (Default: 4)
 	
 	Without any arguments, the utility will iterate 
 	through all of the files in the current directory 

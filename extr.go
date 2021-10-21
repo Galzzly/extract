@@ -4,16 +4,41 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dsnet/compress/bzip2"
+	"github.com/h2non/filetype"
 	"github.com/nwaples/rardecode"
+	"github.com/vbauerster/mpb"
+	"github.com/vbauerster/mpb/decor"
 )
+
+var formats = []string{"application/gzip",
+	"application/x-tar",
+	"application/zip",
+	"application/x-rar",
+	"application/vnd.rar",
+	"application/x-bzip2",
+}
+
+type WriteCounter struct {
+	n   int
+	bar *mpb.Bar
+}
+
+func (wc *WriteCounter) Write(p []byte) (n int, err error) {
+	wc.n += len(p)
+	wc.bar.IncrBy(len(p))
+	return wc.n, nil
+}
 
 /*
 Central place to keep all of the extraction functions to be called on from main.go
@@ -25,6 +50,126 @@ Central place to keep all of the extraction functions to be called on from main.
 	bzip
 */
 
+/*
+	Start off with the main function, that will process.
+*/
+
+func Extract(fileList []string, destDir string, numC int) (err error) {
+	var wg sync.WaitGroup
+	wg.Add(len(fileList))
+
+	p := mpb.New(mpb.WithWaitGroup(&wg))
+
+	workers := make(chan int, numC)
+
+	for _, f := range fileList {
+		go extract(f, destDir, &wg, p, workers)
+	}
+
+	p.Wait()
+	wg.Wait()
+	close(workers)
+
+	return
+}
+
+func extract(source, destDir string, wg *sync.WaitGroup, p *mpb.Progress, worker chan int) {
+	defer wg.Done()
+	worker <- 1
+	buf, _ := ioutil.ReadFile(source)
+	format, _ := filetype.Match(buf)
+	if filetype.IsArchive(buf) && find(format.MIME.Value) {
+		_ = extr(source, destDir, format.Extension, format.MIME.Value, p)
+	}
+
+	<-worker
+}
+
+func find(frmt string) bool {
+	for _, f := range formats {
+		if f == frmt {
+			return true
+		}
+	}
+	return false
+}
+
+func extr(source, destDir, ext, frmt string, p *mpb.Progress) (err error) {
+	start := time.Now()
+	b := p.AddBar(
+		int64(100),
+		mpb.BarClearOnComplete(),
+		mpb.PrependDecorators(
+			decor.Name(source+":", decor.WC{W: len(source) + 2, C: decor.DidentRight}),
+			decor.OnComplete(decor.Name("Extracting", decor.WCSyncSpaceR), fmt.Sprintf("Done! (%s)", time.Since(start))),
+			decor.Percentage(decor.WCSyncSpace),
+		),
+	)
+
+	counter := &WriteCounter{bar: b}
+
+	switch frmt {
+	// Gzip files
+	case "application/gzip":
+		f, err := os.Open(source)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		err = Gzip(f, destDir, counter)
+		if err != nil {
+			return err
+		}
+
+	// Tar files
+	case "application/x-tar":
+		f, err := os.Open(source)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		err = Tar(f, destDir, counter)
+		if err != nil {
+			return err
+		}
+	// Zip files
+	case "application/zip":
+		err = Zip(source, destDir, counter)
+	// Rar files, without password
+	case "application/x-rar", "application/vnd.rar":
+		f, err := os.Open(source)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		err = Rar(f, destDir, counter)
+		if err != nil {
+			return err
+		}
+	// Bzip files
+	case "application/x-bzip2":
+		f, err := os.Open(source)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		err = Bzip(f, GetFileName(source), destDir, counter)
+		if err != nil {
+			return err
+		}
+	// Anything else, we do not process right now
+	default:
+		err = errors.New("unable to process right now")
+		b.Completed()
+		if err != nil {
+			return err
+		}
+
+	}
+
+	return nil
+}
+
 func validPath(p string) bool {
 	if p == "" || strings.Contains(p, `\`) || strings.HasPrefix(p, "/") || strings.Contains(p, "../") {
 		return false
@@ -33,13 +178,12 @@ func validPath(p string) bool {
 }
 
 // Extraction of Gzip files
-func Gzip(src io.Reader, dst string) error {
+func Gzip(src io.Reader, dst string, c *WriteCounter) error {
 	zr, e := gzip.NewReader(src)
 	Check(e)
 	defer zr.Close()
 
 	tr := tar.NewReader(zr)
-
 	// Check if there is a TAR file within
 	_, e = tr.Next()
 	if e != nil {
@@ -49,27 +193,32 @@ func Gzip(src io.Reader, dst string) error {
 
 		// Check name against the path
 		if !validPath(zr.Name) {
-			return fmt.Errorf("Bundle contained invalid name error %q", target)
+			return fmt.Errorf("bundle contained invalid name error %q", target)
 		}
 
 		opWriter, e := os.Create(target)
-		Check(e)
+		if e != nil {
+			return e
+		}
 		defer opWriter.Close()
 
-		_, e = io.Copy(opWriter, zr)
-		Check(e)
+		_, e = io.Copy(opWriter, io.TeeReader(zr, c))
+		if e != nil {
+			return e
+		}
 	} else {
 		// There is a TAR bundle, work through that
-		e := Tar(zr, dst)
-		Check(e)
+		e := Tar(zr, dst, c)
+		if e != nil {
+			return e
+		}
 	}
 
 	return nil
 }
 
-func Tar(src io.Reader, dst string) error {
+func Tar(src io.Reader, dst string, c *WriteCounter) error {
 	tr := tar.NewReader(src)
-
 	/*
 		Need to track the directories with their modified times to correct
 		after extraction. Otherwise, modified will update with each file
@@ -82,13 +231,15 @@ func Tar(src io.Reader, dst string) error {
 		if e == io.EOF {
 			break // Reached the end of the archive
 		}
-		Check(e)
+		if e != nil {
+			return e
+		}
 
 		target := filepath.Join(dst, header.Name)
 
 		// Check the path
 		if !validPath(header.Name) {
-			fmt.Errorf("Bundle contained invalid name error %q", target)
+			fmt.Errorf("bundle contained invalid name error %q", target)
 		}
 
 		switch header.Typeflag {
@@ -113,14 +264,18 @@ func Tar(src io.Reader, dst string) error {
 				}
 			}
 			ftw, e := os.OpenFile(target, os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode))
-			Check(e)
-			if _, e := io.Copy(ftw, tr); e != nil {
+			if e != nil {
+				return e
+			}
+			if _, e := io.Copy(ftw, io.TeeReader(tr, c)); e != nil {
 				return e
 			}
 			ftw.Close()
 			// Set the modification time & access time
 			e = os.Chtimes(target, header.AccessTime, header.ModTime)
-			Check(e)
+			if e != nil {
+				return e
+			}
 		}
 	}
 
@@ -130,21 +285,27 @@ func Tar(src io.Reader, dst string) error {
 	*/
 	for dir := range dirTimes {
 		e := os.Chtimes(dir, dirTimes[dir]["aTime"], dirTimes[dir]["mTime"])
-		Check(e)
+		if e != nil {
+			return e
+		}
 	}
 
 	return nil
 }
 
-func Zip(src, dst string) error {
+func Zip(src, dst string, c *WriteCounter) error {
 	zp, e := zip.OpenReader(src)
-	Check(e)
+	if e != nil {
+		return e
+	}
 	defer zp.Close()
 
 	// Cycle through the contents, with enough permissions to write the files
 	for _, f := range zp.File {
 		rc, e := f.Open()
-		Check(e)
+		if e != nil {
+			return e
+		}
 		defer func() {
 			if err := rc.Close(); err != nil {
 				panic(err)
@@ -154,7 +315,7 @@ func Zip(src, dst string) error {
 		target := filepath.Join(dst, f.Name)
 
 		if !strings.HasPrefix(target, filepath.Clean(dst)+string(os.PathSeparator)) {
-			fmt.Errorf("Bundle contained invalid name error %q", target)
+			fmt.Errorf("bundle contained invalid name error %q", target)
 		}
 
 		if f.FileInfo().IsDir() {
@@ -162,24 +323,33 @@ func Zip(src, dst string) error {
 		} else {
 			os.MkdirAll(filepath.Dir(target), os.FileMode(0777))
 			ftw, e := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, os.FileMode(0777))
-			Check(e)
+			if e != nil {
+				return e
+			}
 			defer func() {
-				if err := ftw.Close(); err != nil {
-					panic(err)
+				err := ftw.Close()
+				if err != nil {
+					return
 				}
 			}()
 
-			_, e = io.Copy(ftw, rc)
-			Check(e)
+			_, e = io.Copy(ftw, io.TeeReader(rc, c))
+			if e != nil {
+				return e
+			}
 		}
 
 		// Correct the permissions
 		e = os.Chmod(target, f.Mode())
-		Check(e)
+		if e != nil {
+			return e
+		}
 
 		// Set the modification time & access time
 		e = os.Chtimes(target, f.Modified, f.Modified)
-		Check(e)
+		if e != nil {
+			return e
+		}
 	}
 
 	return nil
@@ -189,22 +359,26 @@ func Szip(src io.Reader, dst string) error {
 	return nil
 }
 
-func Rar(src io.Reader, dst string) error {
+func Rar(src io.Reader, dst string, c *WriteCounter) error {
 	rr, e := rardecode.NewReader(src, "")
-	Check(e)
+	if e != nil {
+		return e
+	}
 
 	for {
 		header, e := rr.Next()
 		if e == io.EOF {
 			break // Reaced the end of the archive
 		}
-		Check(e)
+		if e != nil {
+			return e
+		}
 
 		target := filepath.Join(dst, header.Name)
 
 		// Check the path
 		if !validPath(header.Name) {
-			fmt.Errorf("Bundle contained invalid name error %q", target)
+			fmt.Errorf("bundle contained invalid name error %q", target)
 		}
 
 		// Check if it's a directory
@@ -216,8 +390,10 @@ func Rar(src io.Reader, dst string) error {
 			}
 		} else {
 			ftw, e := os.OpenFile(target, os.O_CREATE|os.O_RDWR, os.FileMode(header.Attributes))
-			Check(e)
-			if _, e := io.Copy(ftw, rr); e != nil {
+			if e != nil {
+				return e
+			}
+			if _, e := io.Copy(ftw, io.TeeReader(rr, c)); e != nil {
 				return e
 			}
 			ftw.Close()
@@ -227,23 +403,29 @@ func Rar(src io.Reader, dst string) error {
 	return nil
 }
 
-func Bzip(src io.Reader, f, dst string) error {
+func Bzip(src io.Reader, f, dst string, c *WriteCounter) error {
 	br, e := bzip2.NewReader(src, nil)
-	Check(e)
+	if e != nil {
+		return e
+	}
 	defer br.Close()
 
 	target := filepath.Join(dst, f)
 
 	if !validPath(target) {
-		fmt.Errorf("Bundle contained invalid name error %q", target)
+		fmt.Errorf("bundle contained invalid name error %q", target)
 	}
 
 	opWrite, e := os.Create(target)
-	Check(e)
+	if e != nil {
+		return e
+	}
 	defer opWrite.Close()
 
-	_, e = io.Copy(opWrite, br)
-	Check(e)
+	_, e = io.Copy(opWrite, io.TeeReader(br, c))
+	if e != nil {
+		return e
+	}
 
 	return nil
 }
