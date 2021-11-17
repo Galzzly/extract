@@ -1,6 +1,7 @@
 package extract
 
 import (
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -41,4 +42,36 @@ func GetFileName(f string) string {
 	filename := strings.TrimSuffix(fName, suffix)
 
 	return filename
+}
+
+/*
+Return slice of bytes from file header
+*/
+func GetFileHeader(file string, l uint32) ([]byte, error) {
+	f, err := GetFile(file)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	return GetHeader(f, l)
+}
+
+func GetFile(file string) (f *os.File, err error) {
+	f, err = os.Open(file)
+	if err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
+func GetHeader(r io.Reader, l uint32) (in []byte, err error) {
+	in = make([]byte, l)
+	n := 0
+	n, err = io.ReadFull(r, in)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		return nil, err
+	}
+	in = in[:n]
+	return in, nil
 }
