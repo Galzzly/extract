@@ -32,12 +32,6 @@ func GetFormat(filename string) (interface{}, error) {
 
 	return f, nil
 
-	// u, ok := f.(Extractor)
-	// if !ok {
-	// 	return nil, fmt.Errorf("unable to recognise format by filename: %s", filename)
-	// }
-
-	// return u.Extract(filename, dest), nil
 }
 
 func ByExtension(filename string) (interface{}, error) {

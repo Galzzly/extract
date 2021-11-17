@@ -2,12 +2,28 @@ package extract
 
 import (
 	"fmt"
+	"io"
+	"os"
 
 	"github.com/dpaks/goworkers"
 )
 
+var readLimit uint32 = 3072
+
 type Extractor interface {
 	Extract(filename, dest string) error
+}
+
+type Reader interface {
+	Open(in io.Reader) error
+	Read() (File, error)
+	Close() error
+}
+
+type File struct {
+	os.FileInfo
+	Header interface{}
+	io.ReadCloser
 }
 
 func Extract(fileList *[]string, destDir string, numC uint32) (err error) {
