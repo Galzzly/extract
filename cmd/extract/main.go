@@ -52,7 +52,6 @@ func run() (err error) {
 	/*
 		Extract the files
 	*/
-
 	if err := extract.Extract(fileList, *destDir, *numC); err != nil {
 		return err
 	}
@@ -65,8 +64,10 @@ func getFileList() (fileList *[]string, err error) {
 	if err != nil {
 		return
 	}
+	var fl = make([]string, 0, len(files))
 	for _, f := range files {
-		*fileList = append(*fileList, f.Name())
+		fl = append(fl, f.Name())
 	}
+	fileList = &fl
 	return
 }
