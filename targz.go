@@ -6,9 +6,11 @@ import (
 	"io"
 	"os"
 	"sync/atomic"
+	"time"
 
 	"github.com/Galzzly/extract/internal/magic"
 	"github.com/klauspost/pgzip"
+	"github.com/vbauerster/mpb/v7"
 )
 
 // TarGz compresses a tar archive
@@ -68,30 +70,34 @@ func (tgz *TarGz) CheckExtension(filename string) (err error) {
 		return fmt.Errorf("%s is not a tar file", filename)
 	}
 
-	fmt.Println("This is a TarGz file", filename)
 	return nil
 }
 
 /*
 	Extract will extract the file sent to the function
 */
-func (tgz *TarGz) Extract(source, destination string) (err error) {
+func (tgz *TarGz) Extract(filename, destination string, p *mpb.Progress, start time.Time) (err error) {
 	tgz.wrapReader()
-	return tgz.Tar.Extract(source, destination)
+	return tgz.Tar.Extract(filename, destination, p, start)
 }
 
+/*
+	Open will set the Reader in the underlying tar archive
+	then open the archive
+*/
 func (tgz *TarGz) Open(in io.Reader) (err error) {
-	fmt.Println("I get here")
 	tgz.wrapReader()
 	return tgz.Tar.Open(in)
 }
 
+/*
+	wrapReader will wrap the Reader in a gzip reader
+*/
 func (tgz *TarGz) wrapReader() {
 	var gzr io.ReadCloser
-	// fmt.Println("And also here")
 	tgz.Tar.readerWrapFn = func(r io.Reader) (io.Reader, error) {
-		//return pgzip.NewReader(r)
-		gzr, err := pgzip.NewReader(r)
+		var err error
+		gzr, err = pgzip.NewReader(r)
 		return gzr, err
 	}
 	tgz.Tar.cleanupWrapFn = func() {

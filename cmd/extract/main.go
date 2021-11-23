@@ -28,23 +28,23 @@ func run() (err error) {
 	kingpin.Parse()
 
 	/*
-		Check that the destination directory exists
-		If it doesn't, attempt to create it.
-		Default is the current directory: ./
-	*/
-	if _, err := os.Stat(*destDir); err != nil {
-		if err := os.MkdirAll(*destDir, 0755); err != nil {
-			return err
-		}
-	}
-
-	/*
 		If no files are specified, attempt to get a list of files in the current directory.
 	*/
 
 	if len(*fileList) == 0 {
 		fileList, err = getFileList()
 		if err != nil {
+			return err
+		}
+	}
+
+	/*
+		Check that the destination directory exists
+		If it doesn't, attempt to create it.
+		Default is the current directory: ./
+	*/
+	if _, err := os.Stat(*destDir); err != nil {
+		if err := os.MkdirAll(*destDir, 0755); err != nil {
 			return err
 		}
 	}

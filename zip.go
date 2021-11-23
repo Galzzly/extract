@@ -10,20 +10,24 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/Galzzly/extract/internal/magic"
 	"github.com/dsnet/compress/bzip2"
 	"github.com/klauspost/compress/zip"
 	"github.com/klauspost/compress/zstd"
 	"github.com/ulikunitz/xz"
+	"github.com/vbauerster/mpb/v7"
 )
 
 // ZipCompressionMethod Compression type
 type ZipCompressionMethod uint16
 
-// Compression methods.
-// see https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT.
-// Note LZMA: Disabled - because 7z isn't able to unpack ZIP+LZMA ZIP+LZMA2 archives made this way - and vice versa.
+/*
+	Compression methods.
+	see https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT.
+	Note LZMA: Disabled - because 7z isn't able to unpack ZIP+LZMA ZIP+LZMA2 archives made this way - and vice versa.
+*/
 const (
 	Store   ZipCompressionMethod = 0
 	Deflate ZipCompressionMethod = 8
@@ -64,7 +68,6 @@ func (*Zip) CheckExtension(filename string) error {
 	if !m.detector(h, l) {
 		return fmt.Errorf("%s is not a Zip file", filename)
 	}
-	fmt.Println("This is a Zip bundle", filename)
 	return nil
 }
 
@@ -95,9 +98,11 @@ func regDecomp(zr *zip.Reader) {
 /*
 	Extract will extract the file sent to the function
 */
-func (z *Zip) Extract(filename, destination string) (err error) {
+func (z *Zip) Extract(filename, destination string, p *mpb.Progress, start time.Time) (err error) {
+	b := AddNewBar(p, filename, start)
 	destination, err = z.topLevelDir(filename, destination)
 	if err != nil {
+		b.Abort(true)
 		return
 	}
 
@@ -107,9 +112,11 @@ func (z *Zip) Extract(filename, destination string) (err error) {
 			break
 		}
 		if err != nil {
+			b.Abort(true)
 			return fmt.Errorf("error reading file in zip archive: %v", err)
 		}
 	}
+	b.SetTotal(1, true)
 	return nil
 }
 
@@ -148,6 +155,10 @@ func (z *Zip) topLevelDir(filename, destination string) (string, error) {
 	return destination, nil
 }
 
+/*
+	unzipNextFile will read the next file in the Rar archive, check the path
+	and move on to perform the extraction via unzipFile
+*/
 func (z *Zip) unzipNextFile(destination string) (err error) {
 	f, err := z.Read()
 	if err != nil {
@@ -168,6 +179,9 @@ func (z *Zip) unzipNextFile(destination string) (err error) {
 	return z.unzipFile(f, destination, &fh)
 }
 
+/*
+	unzipFile will extract the file sent to the function
+*/
 func (z *Zip) unzipFile(f File, destination string, fh *zip.FileHeader) (err error) {
 	destination = filepath.Join(destination, fh.Name)
 
@@ -187,6 +201,9 @@ func (z *Zip) unzipFile(f File, destination string, fh *zip.FileHeader) (err err
 	return WriteFile(destination, f, fh.Mode())
 }
 
+/*
+	Open will open the Zip file for reading
+*/
 func (z *Zip) Open(in io.Reader, size int64) (err error) {
 	inRA, ok := in.(io.ReaderAt)
 	if !ok {
@@ -206,6 +223,9 @@ func (z *Zip) Open(in io.Reader, size int64) (err error) {
 	return nil
 }
 
+/*
+	Read will read the next file in the Zip archive
+*/
 func (z *Zip) Read() (f File, err error) {
 	if z.zr == nil {
 		return File{}, fmt.Errorf("zip archive is not open for reading")
@@ -225,12 +245,15 @@ func (z *Zip) Read() (f File, err error) {
 
 	rc, err := zf.Open()
 	if err != nil {
-		return f, fmt.Errorf("%s: opening compressed fie: %v", f.Name, err)
+		return f, fmt.Errorf("%s: opening compressed fie: %v", f.Name(), err)
 	}
 	f.ReadCloser = rc
 	return f, nil
 }
 
+/*
+	Close will close the Zip archive
+*/
 func (z *Zip) Close() {
 	if z.zr == nil {
 		z.zr = nil

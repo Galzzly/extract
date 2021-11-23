@@ -7,8 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"sync/atomic"
+	"time"
 
 	"github.com/Galzzly/extract/internal/magic"
+	"github.com/vbauerster/mpb/v7"
 )
 
 type Tar struct {
@@ -40,36 +42,44 @@ func (*Tar) CheckExtension(filename string) error {
 	if !m.detector(h, l) {
 		return fmt.Errorf("%s is not a .tar file", filename)
 	}
-	fmt.Println("This is a tar bundle", filename)
 	return nil
 }
 
 /*
 	Extract will extract the file sent to the function
 */
-func (t *Tar) Extract(filename, destination string) (err error) {
+func (t *Tar) Extract(filename, destination string, p *mpb.Progress, start time.Time) (err error) {
+	b := AddNewBar(p, filename, start)
 	destination, err = t.topLevelDir(filename, destination)
 	if err != nil {
+		b.Abort(true)
 		return
 	}
 
 	f, err := os.Open(filename)
 	if err != nil {
+		b.Abort(true)
 		return fmt.Errorf("problems opening the tar archive %s: %v", filename, err)
 	}
 	defer f.Close()
 
 	err = t.Open(f)
-
+	if err != nil {
+		b.Abort(true)
+		return err
+	}
 	for {
+
 		err = t.untarNextFile(destination)
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
+			b.Abort(true)
 			return fmt.Errorf("problem extracting file: %v", err)
 		}
 	}
+	b.SetTotal(1, true)
 	return nil
 }
 
@@ -107,6 +117,7 @@ func (t *Tar) topLevelDir(source, destination string) (string, error) {
 			break
 		}
 		if err != nil {
+			mpb.BarFillerOnComplete("")
 			return "", fmt.Errorf("issue scanning tar file listings: %v", err)
 		}
 		files = append(files, f.Name)
@@ -119,6 +130,10 @@ func (t *Tar) topLevelDir(source, destination string) (string, error) {
 	return destination, nil
 }
 
+/*
+	untarNextFile will read the next file in the Rar archive, check the path
+	and move on to perform the extraction via untarFile
+*/
 func (t *Tar) untarNextFile(destination string) (err error) {
 	f, err := t.Read()
 	if err != nil {
@@ -138,6 +153,9 @@ func (t *Tar) untarNextFile(destination string) (err error) {
 	return t.untarFile(f, destination, h)
 }
 
+/*
+	untarFile will extract the file sent to the function
+*/
 func (t *Tar) untarFile(f File, destination string, h *tar.Header) (err error) {
 	dest := filepath.Join(destination, h.Name)
 
@@ -157,12 +175,14 @@ func (t *Tar) untarFile(f File, destination string, h *tar.Header) (err error) {
 	}
 }
 
+/*
+	Open will open a tar archive for reading.
+*/
 func (t *Tar) Open(in io.Reader) (err error) {
 	if t.tr != nil {
 		return fmt.Errorf("tar archive is already open")
 	}
 	if t.readerWrapFn != nil {
-		fmt.Println("this bit")
 		in, err = t.readerWrapFn(in)
 		if err != nil {
 			return fmt.Errorf("issue wrapping file reader: %v", err)
@@ -172,6 +192,9 @@ func (t *Tar) Open(in io.Reader) (err error) {
 	return nil
 }
 
+/*
+	Read will read the next file in the archive
+*/
 func (t *Tar) Read() (f File, err error) {
 	if t.tr == nil {
 		return File{}, fmt.Errorf("tar archive is not open")
@@ -190,6 +213,9 @@ func (t *Tar) Read() (f File, err error) {
 	return file, nil
 }
 
+/*
+	Close will close the tar archive
+*/
 func (t *Tar) Close() {
 	if t.tr == nil {
 		t.tr = nil
@@ -199,8 +225,6 @@ func (t *Tar) Close() {
 	}
 }
 
-// Not entirely sure that I need this here. May need to remove the contents
-// of the struct, and just return it empty
 func NewTar() *Tar {
 	return &Tar{
 		MkdirAll: true,

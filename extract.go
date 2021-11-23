@@ -7,20 +7,16 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
-	"github.com/dpaks/goworkers"
+	"github.com/vbauerster/mpb/v7"
 )
 
 var readLimit uint32 = 3072
 
 type Extractor interface {
-	Extract(filename, dest string) error
-}
-
-type Reader interface {
-	Open(in io.Reader) error
-	Read() (File, error)
-	Close() error
+	Extract(filename, dest string, p *mpb.Progress, start time.Time) error
 }
 
 type File struct {
@@ -29,9 +25,11 @@ type File struct {
 	io.ReadCloser
 }
 
-// ReadFakeCloser is an io.Reader that has
-// a no-op close method to satisfy the
-// io.ReadCloser interface.
+/*
+	ReadFakeCloser is an io.Reader that has
+	a no-op close method to satisfy the
+	io.ReadCloser interface.
+*/
 type ReadFakeCloser struct {
 	io.Reader
 }
@@ -40,42 +38,46 @@ type ReadFakeCloser struct {
 func (rfc ReadFakeCloser) Close() error { return nil }
 
 func Extract(fileList *[]string, destDir string, numC uint32) (err error) {
-	opts := goworkers.Options{Workers: numC}
-	gw := goworkers.New(opts)
+	start := time.Now()
 
-	go func() {
-		for err := range gw.ErrChan {
-			fmt.Println(err)
-		}
-	}()
+	var wg sync.WaitGroup
+	wg.Add(len(*fileList))
 
+	p := mpb.New(mpb.WithWaitGroup(&wg))
+	workers := make(chan int, numC)
 	for _, f := range *fileList {
 		file := f
-		gw.SubmitCheckError(func() error {
-			return extractFile(file, destDir)
-		})
+		go extractFile(file, destDir, &wg, p, workers)
 	}
 
-	gw.Stop(true)
+	p.Wait()
+	wg.Wait()
+	close(workers)
 
+	fmt.Println("\nExtraction complete in", time.Since(start))
 	return
 }
 
-func extractFile(file, destDir string) (err error) {
+func extractFile(file, destDir string, wg *sync.WaitGroup, p *mpb.Progress, worker chan int) (err error) {
+	defer wg.Done()
+	worker <- 1
+	start := time.Now()
 	iface, err := GetFormat(file)
 	if err != nil {
-		return err
+		<-worker
+		return nil
 	}
 
-	u, ok := iface.(Extractor)
-	if !ok {
-		return fmt.Errorf("%s is not a supported file format", file)
-	}
-	err = u.Extract(file, destDir)
+	u, _ := iface.(Extractor)
+
+	err = u.Extract(file, destDir, p, start)
 	if err != nil {
+		<-worker
+		fmt.Println("\r", file, "failed to extract in", time.Since(start))
 		return err
 	}
-
+	fmt.Println(file, "extracted to", destDir, "in", time.Since(start))
+	<-worker
 	return nil
 }
 
@@ -107,6 +109,10 @@ func TopLevels(paths []string) bool {
 	return false
 }
 
+/*
+	DirFromFile returns a directory based on the filename
+	provided to the function.
+*/
 func DirFromFile(filename string) (dir string) {
 	dir = filepath.Base(filename)
 	fd := strings.Index(dir, ".")
@@ -116,11 +122,19 @@ func DirFromFile(filename string) (dir string) {
 	return dir
 }
 
+/*
+	FileExists will check for the existence of a file
+	provided to the function as filename
+*/
 func FileExists(filename string) bool {
 	_, err := os.Stat(filename)
 	return !os.IsNotExist(err)
 }
 
+/*
+	CheckPath confirms that the path provided has not been made to
+	perform a traversal attack.
+*/
 func CheckPath(destination, filename string) (err error) {
 	destination, _ = filepath.Abs(destination)
 	dest := filepath.Join(destination, filename)
@@ -130,10 +144,17 @@ func CheckPath(destination, filename string) (err error) {
 	return nil
 }
 
+/*
+	IsSymlink returns true if the file is a symlink.
+*/
 func IsSymlink(fi os.FileInfo) bool {
 	return fi.Mode()&os.ModeSymlink != 0
 }
 
+/*
+	Mkdir creates a directory at the destination path, along with any
+	parent directories
+*/
 func Mkdir(path string, mode os.FileMode) error {
 	err := os.MkdirAll(path, mode)
 	if err != nil {
@@ -142,6 +163,9 @@ func Mkdir(path string, mode os.FileMode) error {
 	return nil
 }
 
+/*
+	WriteFile writes a file to the destination path.
+*/
 func WriteFile(destination string, in io.Reader, mode os.FileMode) (err error) {
 	err = Mkdir(filepath.Dir(destination), 0755)
 	if err != nil {
@@ -162,10 +186,14 @@ func WriteFile(destination string, in io.Reader, mode os.FileMode) (err error) {
 	if err != nil {
 		return fmt.Errorf("%s: error writing file: %v", destination, err)
 	}
+	out.Close()
 
 	return nil
 }
 
+/*
+	WriteSymlink creates the symbolic link at the destination location
+*/
 func WriteSymlink(destination, link string) (err error) {
 	err = Mkdir(filepath.Dir(destination), 0755)
 	if err != nil {
@@ -186,6 +214,9 @@ func WriteSymlink(destination, link string) (err error) {
 	return nil
 }
 
+/*
+	WriteHardlink creates the hard link at the destination location.
+*/
 func WriteHardlink(destination, link string) (err error) {
 	err = Mkdir(filepath.Dir(destination), 0755)
 	if err != nil {

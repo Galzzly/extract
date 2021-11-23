@@ -10,6 +10,7 @@ import (
 
 	"github.com/Galzzly/extract/internal/magic"
 	"github.com/nwaples/rardecode"
+	"github.com/vbauerster/mpb/v7"
 )
 
 type Rar struct {
@@ -40,24 +41,19 @@ func (*Rar) CheckExtension(filename string) error {
 	if !m.detector(h, l) {
 		return fmt.Errorf("%s is not a Rar file", filename)
 	}
-	fmt.Println("This is a Rar file", filename)
 	return nil
 }
 
 /*
 	Extract will extract the file sent to the function
 */
-func (rar *Rar) Extract(filename, destination string) (err error) {
-	// Open the destination file for writing
-	// out, err := os.Create(destination)
-	// if err != nil {
-	// 	return err
-	// }
-
+func (rar *Rar) Extract(filename, destination string, p *mpb.Progress, start time.Time) (err error) {
+	b := AddNewBar(p, filename, start)
 	// Check for a common root, and return a modified destination
 	// so that we don't clobber the destination directory
 	destination, err = rar.topLevelDir(filename, destination)
 	if err != nil {
+		b.Abort(true)
 		return
 	}
 
@@ -65,6 +61,7 @@ func (rar *Rar) Extract(filename, destination string) (err error) {
 	// Supporting multi-volume archives.
 	err = rar.OpenRarFile(filename)
 	if err != nil {
+		b.Abort(true)
 		return fmt.Errorf("unable to open rar file for reading: %v", err)
 	}
 	defer rar.Close()
@@ -75,10 +72,11 @@ func (rar *Rar) Extract(filename, destination string) (err error) {
 			break
 		}
 		if err != nil {
+			b.Abort(true)
 			return fmt.Errorf("issue reading file in rar archive: %v", err)
 		}
 	}
-
+	b.SetTotal(1, true)
 	return nil
 }
 
@@ -119,6 +117,10 @@ func (rar *Rar) topLevelDir(source, destination string) (string, error) {
 	return destination, nil
 }
 
+/*
+	unrarNextFile will read the next file in the Rar archive, check the path
+	and move on to perform the extraction via unrarFile
+*/
 func (rar *Rar) unrarNextFile(destination string) (err error) {
 	f, err := rar.Read()
 	if err != nil {
@@ -140,6 +142,9 @@ func (rar *Rar) unrarNextFile(destination string) (err error) {
 	return rar.unrarFile(f, filepath.Join(destination, fh.Name))
 }
 
+/*
+	unrarFile will extract the file sent to the function
+*/
 func (rar *Rar) unrarFile(f File, destination string) (err error) {
 	fh, ok := f.Header.(*rardecode.FileHeader)
 	if !ok {
@@ -150,12 +155,6 @@ func (rar *Rar) unrarFile(f File, destination string) (err error) {
 		return Mkdir(destination, fh.Mode())
 	}
 
-	// We should make sure that the parent directories for files exists
-	// err = Mkdir(filepath.Dir(destination), 0755)
-	// if err != nil {
-	// 	return fmt.Errorf("error creating parent directories: %v", err)
-	// }
-
 	if (fh.Mode() & os.ModeSymlink) != 0 {
 		return nil
 	}
@@ -163,6 +162,9 @@ func (rar *Rar) unrarFile(f File, destination string) (err error) {
 	return WriteFile(destination, rar.rr, fh.Mode())
 }
 
+/*
+	OpenRarFile will open the Rar file for reading
+*/
 func (rar *Rar) OpenRarFile(file string) (err error) {
 	if rar.rr != nil {
 		return fmt.Errorf("rar archive is already open for reading")
@@ -176,6 +178,9 @@ func (rar *Rar) OpenRarFile(file string) (err error) {
 	return nil
 }
 
+/*
+	Read will read the next file in the Rar archive
+*/
 func (rar *Rar) Read() (f File, err error) {
 	if rar.rr == nil {
 		return File{}, fmt.Errorf("rar archive is not open for reading")
@@ -194,6 +199,9 @@ func (rar *Rar) Read() (f File, err error) {
 	return f, nil
 }
 
+/*
+	Close will close the Rar archive
+*/
 func (rar *Rar) Close() (err error) {
 	if rar.rc != nil {
 		rc := rar.rc
@@ -205,15 +213,6 @@ func (rar *Rar) Close() (err error) {
 	}
 	return
 }
-
-// func (*Rar) CheckPath(destination, filename string) (err error) {
-// 	destination, _ = filepath.Abs(destination)
-// 	dest := filepath.Join(destination, filename)
-// 	if !strings.HasPrefix(dest, destination) {
-// 		return &IllegalPathError{dest, filename}
-// 	}
-// 	return nil
-// }
 
 func NewRar() *Rar {
 	return &Rar{

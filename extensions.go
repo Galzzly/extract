@@ -2,7 +2,6 @@ package extract
 
 import (
 	"fmt"
-	"strings"
 )
 
 // Extension to validate file extension.
@@ -20,11 +19,10 @@ var extensions = []Extension{
 	&Bz2{},
 }
 
+/*
+	GetFormat returns the format of the file
+*/
 func GetFormat(filename string) (interface{}, error) {
-	if !strings.Contains(filename, ".") {
-		filename = "." + filename
-	}
-
 	f, err := ByExtension(filename)
 	if err != nil {
 		return nil, err
@@ -34,6 +32,10 @@ func GetFormat(filename string) (interface{}, error) {
 
 }
 
+/*
+	Will return an new instance of the file format based on the
+	magic numbers found in the file.
+*/
 func ByExtension(filename string) (interface{}, error) {
 	var ext interface{}
 	for _, c := range extensions {

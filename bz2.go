@@ -5,9 +5,11 @@ import (
 	"io"
 	"os"
 	"sync/atomic"
+	"time"
 
 	"github.com/Galzzly/extract/internal/magic"
 	"github.com/dsnet/compress/bzip2"
+	"github.com/vbauerster/mpb/v7"
 )
 
 type Bz2 struct {
@@ -35,14 +37,14 @@ func (*Bz2) CheckExtension(filename string) error {
 	if !m.detector(h, l) {
 		return fmt.Errorf("%s is not a Bzip2 file", filename)
 	}
-	fmt.Println("This is a Bzip2 file", filename)
 	return nil
 }
 
 /*
 	Extract will extract the file sent to the function
 */
-func (bz *Bz2) Extract(filename, destination string) (err error) {
+func (bz *Bz2) Extract(filename, destination string, p *mpb.Progress, start time.Time) (err error) {
+	b := AddNewBar(p, filename, start)
 	// Open the file in filename. We can assume if you've got this
 	// far that the file exists.
 	f, _ := os.Open(filename)
@@ -51,18 +53,25 @@ func (bz *Bz2) Extract(filename, destination string) (err error) {
 	// Open the destination file for writing
 	out, err := os.Create(destination)
 	if err != nil {
+		b.Abort(true)
 		return err
 	}
 
 	// Open the Reader
 	r, err := bzip2.NewReader(f, nil)
 	if err != nil {
+		b.Abort(true)
 		return err
 	}
 	defer r.Close()
 
 	// Write out the file
 	_, err = io.Copy(out, r)
+	if err != nil {
+		b.Abort(true)
+		return err
+	}
+	b.SetTotal(1, true)
 	return
 }
 

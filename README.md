@@ -1,6 +1,6 @@
 # extract ![issues](https://img.shields.io/github/issues/Galzzly/extract?style=plastic) [![extract GoDoc](https://img.shields.io/badge/reference-godoc-blue.svg?logo=go&style=plastic)](https://pkg.go.dev/github.com/Galzzly/extract)
 
-Introducing **extract v1.3** - a simple utility and GO library to extract different archive types. 
+Introducing **extract v2.0** - a simple utility and GO library to extract different archive types. 
 
 ## Features
 
