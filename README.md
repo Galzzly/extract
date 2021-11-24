@@ -9,6 +9,7 @@ Package extract attempts to make it simple to decompress the compatible archive 
 
 The `extract` command can be ran with no flags to decompress all compatible archive bundles in the current directory in place. It can also be ran with the following flags:
 
+
 >`-f FILE | --flag=FILE` <br>to decomress a single bundle. This flag may be used more than once if there are multiple bundles.
 ><br>
 >`-d DIR | --dest=DIR` <br>Sets a destination directory for the archives to be extracted into. By default this is set to the current working directory.
