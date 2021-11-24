@@ -21,11 +21,11 @@ type Rar struct {
 }
 
 /*
-	CheckExtension will check the file sent to the function
+	CheckFormat will check the file sent to the function
 	against the magic numbers for Rar. If the file is a Rar
 	the function will not return any error.
 */
-func (*Rar) CheckExtension(filename string) error {
+func (*Rar) CheckFormat(filename string) error {
 	l := atomic.LoadUint32(&readLimit)
 
 	// Get the header of filename

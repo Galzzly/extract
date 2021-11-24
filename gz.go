@@ -19,11 +19,11 @@ type Gz struct {
 }
 
 /*
-	CheckExtension will check the file sent to the function
+	CheckFormat will check the file sent to the function
 	against the magic numbers for GZip. If the file is a GZip
 	the function will not return any error.
 */
-func (gz *Gz) CheckExtension(filename string) error {
+func (gz *Gz) CheckFormat(filename string) error {
 	l := atomic.LoadUint32(&readLimit)
 
 	// Get the header of filename

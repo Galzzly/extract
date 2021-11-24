@@ -17,11 +17,11 @@ type Bz2 struct {
 }
 
 /*
-	CheckExtension will check the file sent to the function
+	CheckFormat will check the file sent to the function
 	against the magic numbers for Bzip2. If the file is a Bzip2
 	the function will not return any error.
 */
-func (*Bz2) CheckExtension(filename string) error {
+func (*Bz2) CheckFormat(filename string) error {
 	l := atomic.LoadUint32(&readLimit)
 
 	// Get the header of filename

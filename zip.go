@@ -48,11 +48,11 @@ type Zip struct {
 }
 
 /*
-	CheckExtension will check the file sent to the funcion
+	CheckFormat will check the file sent to the funcion
 	against the magic numbers for Zip. If the file is a Zip
 	the function will not return any error.
 */
-func (*Zip) CheckExtension(filename string) error {
+func (*Zip) CheckFormat(filename string) error {
 	l := atomic.LoadUint32(&readLimit)
 
 	// Get the header of filename

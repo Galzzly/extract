@@ -22,11 +22,11 @@ type Tar struct {
 }
 
 /*
-	CheckExtension will check the file sent to the funcion
+	CheckFormat will check the file sent to the funcion
 	against the magic numbers for Tar. If the file is a Tar
 	the function will not return any error.
 */
-func (*Tar) CheckExtension(filename string) error {
+func (*Tar) CheckFormat(filename string) error {
 	l := atomic.LoadUint32(&readLimit)
 
 	// Get the header of filename

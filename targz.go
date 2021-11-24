@@ -21,14 +21,14 @@ type TarGz struct {
 }
 
 /*
-	CheckExtension will check the file sent to the function
+	CheckFormat will check the file sent to the function
 	against magic numbers for Gzip & Tar. If the file is a TarGz
 	the function will not return any error.
 	First will check the file contains the relevant magic number
 	for a GZip file, and if so, will check that the file within
 	contains the magic number for a Tar file.
 */
-func (tgz *TarGz) CheckExtension(filename string) (err error) {
+func (tgz *TarGz) CheckFormat(filename string) (err error) {
 	l := atomic.LoadUint32(&readLimit)
 
 	// Get the header of the GZip file

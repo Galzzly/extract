@@ -17,7 +17,7 @@ type IllegalPathError struct {
 }
 
 func (e *IllegalPathError) Error() string {
-	return fmt.Sprintf("Illegal path: %s", e.Abs)
+	return fmt.Sprintf("Illegal path: %s", e.Filename)
 }
 
 func IsIllegalPathError(err error) bool {
