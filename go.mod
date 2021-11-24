@@ -1,4 +1,4 @@
-module github.com/Galzzly/extract
+module github.com/Galzzly/extract/v2
 
 go 1.15
 

@@ -44,5 +44,5 @@ See <https://pkg.go.dev/github.com/Galzzly/extract>
 To install the binary directly into your \$GOPATH/bin:
 
 ```
-go get github.com/Galzzly/extract/cmd/extract
+go get github.com/Galzzly/extract/cmd/extract/v2
 ```
